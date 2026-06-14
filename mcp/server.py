@@ -357,34 +357,15 @@ tr:hover td {{ background: rgba(255,255,255,0.02); }}
   </tbody></table>
 </div>
 
-<div class="card">
-  <h3>Top Broken Internal Links (4xx/5xx)</h3>
-  <table><thead><tr><th>Source</th><th>Destination</th><th>Status</th><th>Anchor</th></tr></thead>
-  <tbody>{broken_rows or '<tr><td colspan=4 class=muted>No broken links found.</td></tr>'}</tbody></table>
-</div>
-
-<h2>2. Anchor Text Audit</h2>
-<div class="card">
-  <h3>Top Generic Anchors</h3>
-  <table><thead><tr><th>Source</th><th>Destination</th><th>Anchor Text</th></tr></thead>
-  <tbody>{generic_rows or '<tr><td colspan=3 class=muted>No generic anchors found.</td></tr>'}</tbody></table>
-</div>
-
-<div class="card">
-  <h3>Over-Optimized Anchors (Exact Match)</h3>
-  <table><thead><tr><th>Target Destination</th><th>Exact Match Anchor</th><th>Count</th><th>Share %</th></tr></thead>
-  <tbody>{overopt_rows or '<tr><td colspan=4 class=muted>No over-optimized anchors detected.</td></tr>'}</tbody></table>
+<h2>2. Contextual Link Recommendations</h2>
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table style="margin:0;"><thead><tr><th>Source Page</th><th>Should Link To</th><th>Suggested Anchor</th><th>Rel.</th><th>Reason</th></tr></thead>
+  <tbody>{rec_rows or '<tr><td colspan=5 class=muted style="padding:20px;">No recommendations generated.</td></tr>'}</tbody></table>
 </div>
 
 <h2>3. Topical Clusters & Authority</h2>
 <div class="cluster-grid">
   {cl_cards or '<div class="muted">No clusters generated.</div>'}
-</div>
-
-<h2>4. Contextual Link Recommendations</h2>
-<div class="card" style="padding: 0; overflow-x: auto;">
-  <table style="margin:0;"><thead><tr><th>Source Page</th><th>Should Link To</th><th>Suggested Anchor</th><th>Rel.</th><th>Reason</th></tr></thead>
-  <tbody>{rec_rows or '<tr><td colspan=5 class=muted style="padding:20px;">No recommendations generated.</td></tr>'}</tbody></table>
 </div>
 
 <div class="footer">

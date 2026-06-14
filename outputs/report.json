@@ -19687,6 +19687,6 @@
   "run_meta": {
     "model": "gpt-oss:20b-cloud",
     "model_calls": 8,
-    "duration_sec": 138.5
+    "duration_sec": 134.6
   }
 }
