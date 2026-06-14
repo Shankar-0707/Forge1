@@ -227,14 +227,24 @@ def cluster_by_similarity(
                 merged[term] += score
         return {t: s / n for t, s in merged.items()}
 
+    cents = [centroid(c) for c in clusters]
+    mags = [math.sqrt(sum(s * s for s in c.values())) for c in cents]
+    keys = [set(c.keys()) for c in cents]
+
     while True:
         best_sim = 0.0
         best_pair = (-1, -1)
 
-        # Find the most similar cluster pair
         for i in range(len(clusters)):
+            if mags[i] == 0: continue
             for j in range(i + 1, len(clusters)):
-                sim = cosine_similarity(centroid(clusters[i]), centroid(clusters[j]))
+                if mags[j] == 0: continue
+                
+                shared = keys[i] & keys[j]
+                if not shared: continue
+                dot = sum(cents[i][t] * cents[j][t] for t in shared)
+                
+                sim = dot / (mags[i] * mags[j])
                 if sim > best_sim:
                     best_sim = sim
                     best_pair = (i, j)
@@ -245,9 +255,23 @@ def cluster_by_similarity(
         # Merge the best pair
         i, j = best_pair
         merged_cluster = clusters[i] + clusters[j]
+        
         # Remove j first (higher index), then i
-        clusters = [c for idx, c in enumerate(clusters) if idx not in (i, j)]
+        clusters.pop(j)
+        clusters.pop(i)
+        cents.pop(j)
+        cents.pop(i)
+        mags.pop(j)
+        mags.pop(i)
+        keys.pop(j)
+        keys.pop(i)
+        
+        # Add new
         clusters.append(merged_cluster)
+        new_cent = centroid(merged_cluster)
+        cents.append(new_cent)
+        mags.append(math.sqrt(sum(s * s for s in new_cent.values())))
+        keys.append(set(new_cent.keys()))
 
     return clusters
 

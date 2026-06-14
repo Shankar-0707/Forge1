@@ -18,6 +18,8 @@ import csv, os, re, math
 from collections import defaultdict, Counter
 from urllib.parse import urlparse
 
+from linkintel.tfidf import tfidf_vectors, cosine_similarity, cluster_by_similarity, extract_bigrams, tokenize
+
 csv.field_size_limit(10_000_000)
 
 # --------------------------------------------------------------------------- #
@@ -28,6 +30,9 @@ GENERIC_ANCHORS = {
     "this", "this page", "link", "view more", "see more", "details", "more details",
     "know more", "discover more", "find out more", "continue reading", "go",
     "click", "view", "see details", "more info", "info",
+    "visit", "visit us", "check it out", "see all", "browse", "explore", "start",
+    "get started", "submit", "go here", "follow", "follow this", "full article",
+    "source", "reference", "website", "homepage", "page", "post"
 }
 
 STOPWORDS = set("""a an the and or but if then else for to of in on at by with from as is are was were be been being this that these those it its we you they he she them our your their i me my mine our ours us not no yes do does did doing have has had having will would can could should may might must shall about into over under again further once here there all any both each few more most other some such only own same so than too very s t can just don now get got also into out up down off above below""".split())
@@ -263,50 +268,119 @@ def _tokens(text: str) -> list[str]:
             if w not in STOPWORDS]
 
 
-def page_keywords(page, body: str, top=12) -> list[str]:
-    """Cheap TF keywords from Title + H1 + H2 + body (deterministic)."""
-    blob = " ".join([
-        page.get("Title 1", "") or "", (page.get("H1-1", "") or "") + " ",
-        page.get("H2-1", "") or "", page.get("H2-2", "") or "", (body or "")[:6000],
-    ])
-    c = Counter(_tokens(blob))
-    return [w for w, _ in c.most_common(top)]
+def page_keywords(page, body: str, top=15, global_df=None, total_pages=0) -> list[str]:
+    """TF keywords from Title + H1 + H2 + body (weighted), plus bigrams."""
+    c = Counter()
+    
+    parts = [
+        (page.get("Title 1", "") or "", 3),
+        (page.get("H1-1", "") or "", 2),
+        ((page.get("H2-1", "") or "") + " " + (page.get("H2-2", "") or ""), 1.5),
+        ((body or "")[:6000], 1)
+    ]
+    
+    for text, weight in parts:
+        if not text.strip(): continue
+        toks = tokenize(text)
+        bigrams = extract_bigrams(toks, top_n=20)
+        for t in toks + bigrams:
+            c[t] += weight
+            
+    if global_df and total_pages > 0:
+        threshold = 0.4 * total_pages
+        for t in list(c.keys()):
+            if global_df.get(t, 0) > threshold:
+                c[t] *= 0.1
+                
+    single_kws = Counter({k: v for k, v in c.items() if " " not in k})
+    bigram_kws = Counter({k: v for k, v in c.items() if " " in k})
+    
+    n_single = int(top * 0.6)
+    n_bigram = top - n_single
+    
+    res = [w for w, _ in single_kws.most_common(n_single)]
+    res += [w for w, _ in bigram_kws.most_common(n_bigram)]
+    
+    if len(res) < top:
+        remaining = top - len(res)
+        all_other = [w for w, _ in c.most_common() if w not in res]
+        res += all_other[:remaining]
+        
+    return res
 
 
-def cluster_pages(pages, page_text, n_keywords=12) -> dict:
-    """Group indexable pages into topical clusters.
-
-    STARTER heuristic: cluster by first URL path segment (e.g. /success-stories/,
-    /blog/, root services). For each cluster compute a hub candidate = the member
-    with the most internal inlinks. Replace/augment with a real keyword/TF or
-    embedding clustering and let the model NAME each cluster (topic-agent).
-    """
+def cluster_pages(pages, page_text, n_keywords=15) -> dict:
+    """Group indexable pages into topical clusters using TF-IDF similarity."""
     idx200 = [p for p in pages if is_html(p) and is_200(p) and indexable(p)]
-    clusters = defaultdict(list)
-    kw = {}
+    
+    global_df = Counter()
     for p in idx200:
         u = _norm(p["Address"])
-        path = urlparse(u).path.strip("/")
-        seg = path.split("/")[0] if path else "(home)"
-        clusters[seg].append(u)
-        kw[u] = page_keywords(p, page_text.get(u, ""), n_keywords)
+        body = page_text.get(u, "")
+        t1 = p.get("Title 1", "") or ""
+        h1 = p.get("H1-1", "") or ""
+        h2 = (p.get("H2-1", "") or "") + " " + (p.get("H2-2", "") or "")
+        b = (body or "")[:6000]
+        toks = set(tokenize(t1 + " " + h1 + " " + h2 + " " + b))
+        global_df.update(toks)
+        
+    total_pages = len(idx200)
+    
+    kw = {}
+    combined_text = {}
+    
+    for p in idx200:
+        u = _norm(p["Address"])
+        body = page_text.get(u, "")
+        kw[u] = page_keywords(p, body, n_keywords, global_df=global_df, total_pages=total_pages)
+        
+        t1 = p.get("Title 1", "") or ""
+        h1 = p.get("H1-1", "") or ""
+        h2 = (p.get("H2-1", "") or "") + " " + (p.get("H2-2", "") or "")
+        b = (body or "")[:6000]
+        combined_text[u] = f"{t1} {h1} {h2} {b}"
 
+    vectors, _ = tfidf_vectors(combined_text)
+    sim_clusters = cluster_by_similarity(vectors, threshold=0.12)
+    
+    clustered_urls = {u for cluster in sim_clusters for u in cluster}
+    
+    fallback_clusters = defaultdict(list)
+    for p in idx200:
+        u = _norm(p["Address"])
+        if u not in clustered_urls:
+            path = urlparse(u).path.strip("/")
+            seg = path.split("/")[0] if path else "(home)"
+            fallback_clusters[seg].append(u)
+            
+    all_clusters_raw = sim_clusters + list(fallback_clusters.values())
+    
     out = []
     inl = {_norm(p["Address"]): _int(p.get("Unique Inlinks")) for p in idx200}
-    for seg, members in sorted(clusters.items(), key=lambda x: -len(x[1])):
+    
+    for members in all_clusters_raw:
+        if not members:
+            continue
         members = sorted(members)
         hub = max(members, key=lambda u: inl.get(u, 0)) if members else None
         hub_inlinks = inl.get(hub, 0)
         member_inl = sorted((inl.get(m, 0) for m in members), reverse=True)
-        # authority signal: clear hub if the top page has >=2x the 2nd page's inlinks
         clear_hub = bool(len(member_inl) >= 2 and hub_inlinks >= 2 * (member_inl[1] or 1))
-        # cluster keywords = most common across members (placeholder name)
+        
         ck = Counter()
         for m in members:
-            ck.update(kw.get(m, []))
+            for word in kw.get(m, []):
+                ck[word] += 1
+                
+        top_kws = [w for w, _ in ck.most_common(3)]
+        name = " & ".join(top_kws) if top_kws else "misc"
+        key = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-')
+        if not key:
+            key = "misc"
+            
         out.append({
-            "key": seg,
-            "name": None,  # TODO: model names this cluster (topic-agent)
+            "key": key,
+            "name": name,
             "size": len(members),
             "pages": members,
             "hub_page": hub,
@@ -314,21 +388,25 @@ def cluster_pages(pages, page_text, n_keywords=12) -> dict:
             "authority": "hub" if clear_hub else "scattered",
             "keywords": [w for w, _ in ck.most_common(8)],
         })
+        
+    out.sort(key=lambda x: -x["size"])
     return {"clusters": out, "page_keywords": kw}
 
 
 # --------------------------------------------------------------------------- #
 # 4. ENTITY GRAPH  (starter: TF-overlap relatedness; TODO: model entities)
 # --------------------------------------------------------------------------- #
-def relatedness(page_keywords: dict, top_per_page=5) -> dict:
-    """Page-to-page topical relatedness via keyword (Jaccard) overlap.
-
-    STARTER: uses the deterministic TF keywords as a proxy for entities. The
-    entity-agent should replace `page_keywords` with model-extracted entities for
-    a sharper graph, then this same overlap math builds the edges.
-    """
+def relatedness(page_keywords: dict, top_per_page=8) -> dict:
+    """Page-to-page topical relatedness via weighted keyword Jaccard overlap."""
     urls = list(page_keywords.keys())
     sets = {u: set(page_keywords[u]) for u in urls}
+    
+    df = Counter()
+    for s in sets.values():
+        df.update(s)
+    N = len(urls)
+    idf = {term: math.log(N / (count + 1)) for term, count in df.items()}
+    
     edges = {}
     for u in urls:
         scored = []
@@ -336,38 +414,61 @@ def relatedness(page_keywords: dict, top_per_page=5) -> dict:
         if not su:
             edges[u] = []
             continue
+            
+        weight_su = sum(idf.get(t, 0) for t in su)
+        
         for v in urls:
             if v == u:
                 continue
             sv = sets[v]
             if not sv:
                 continue
-            inter = len(su & sv)
-            if inter == 0:
+                
+            inter = su & sv
+            if not inter:
                 continue
-            jac = inter / len(su | sv)
-            scored.append((v, round(jac, 3), sorted(su & sv)[:6]))
+                
+            weight_inter = sum(idf.get(t, 0) for t in inter)
+            weight_sv = sum(idf.get(t, 0) for t in sv)
+            
+            union_weight = weight_su + weight_sv - weight_inter
+            if union_weight <= 0: continue
+            
+            jac = weight_inter / union_weight
+            if jac >= 0.05:
+                scored.append((v, round(jac, 3), sorted(inter)[:6]))
+                
         scored.sort(key=lambda x: -x[1])
         edges[u] = [{"to": v, "score": s, "shared": sh} for v, s, sh in scored[:top_per_page]]
+        
     return edges
 
 
 # --------------------------------------------------------------------------- #
 # 5. CONTEXTUAL LINK RECOMMENDATIONS  (starter: candidates; model writes anchors)
 # --------------------------------------------------------------------------- #
-def link_candidates(graph, relate: dict, pages, max_per_page=5) -> list:
-    """For each important page, find topically-related pages it does NOT already
-    link to. The model (linker-agent) turns each candidate into a final
-    recommendation with a suggested anchor.
-
-    STARTER returns the raw candidates (deterministic). It does NOT write anchors -
-    that is the model's job (see agents/linker.md).
-    """
+def link_candidates(graph, relate: dict, pages, max_per_page=5, clusters_data=None) -> list:
+    """For each important page, find topically-related pages it does NOT already link to."""
     idx200 = [p for p in pages if is_html(p) and is_200(p) and indexable(p)]
     inl = {_norm(p["Address"]): _int(p.get("Unique Inlinks")) for p in idx200}
-    # "important" = top pages by inlinks (hubs/money pages). Tune as needed.
-    important = sorted(inl, key=lambda u: -inl[u])[:40]
+    
+    UNDER = 1
+    under_linked_set = {u for u, count in inl.items() if count <= UNDER}
+    
+    scattered_set = set()
+    if clusters_data:
+        for c in clusters_data:
+            if c.get("authority") == "scattered":
+                scattered_set.update(c.get("pages", []))
+                
+    titles = {}
+    for p in idx200:
+        u = _norm(p["Address"])
+        titles[u] = p.get("Title 1", "") or ""
+        
+    important = sorted(inl.keys(), key=lambda u: -inl[u])[:60]
     out = []
+    
     for u in important:
         already = graph["out"].get(u, set())
         cands = []
@@ -375,12 +476,40 @@ def link_candidates(graph, relate: dict, pages, max_per_page=5) -> list:
             v = e["to"]
             if v in already or v == u:
                 continue
-            cands.append({"target": v, "relatedness": e["score"], "shared_topics": e["shared"],
-                          "suggested_anchor": None})  # TODO: model writes the anchor
-            if len(cands) >= max_per_page:
-                break
+                
+            base_score = e["score"]
+            mult = 1.0
+            reasons = [f"shared topics: {', '.join(e['shared'][:2])}"]
+            
+            if v in under_linked_set:
+                mult *= 2.0
+                reasons.append("fixes under-linked page")
+            if v in scattered_set:
+                mult *= 1.5
+                reasons.append("supports scattered cluster")
+                
+            final_score = base_score * mult
+            
+            raw_title = titles.get(v, "")
+            clean_title = re.split(r'\s+[|\-]\s+', raw_title)[0].strip().lower()
+            words = clean_title.split()
+            anchor = " ".join(words[:6])
+            
+            cands.append({
+                "target": v, 
+                "relatedness": base_score, 
+                "shared_topics": e["shared"],
+                "composite_score": round(final_score, 3),
+                "suggested_anchor": anchor if anchor else "read more",
+                "reason": "; ".join(reasons)
+            })
+            
+        cands.sort(key=lambda x: -x["composite_score"])
+        cands = cands[:max_per_page]
+        
         if cands:
             out.append({"source": u, "candidates": cands})
+            
     return out
 
 
@@ -396,7 +525,7 @@ def analyze(export_dir: str) -> dict:
     anchors = anchor_analysis(inlinks)
     clusters = cluster_pages(pages, text)
     relate = relatedness(clusters["page_keywords"])
-    cands = link_candidates(graph, relate, pages)
+    cands = link_candidates(graph, relate, pages, clusters_data=clusters["clusters"])
     return {
         "pages": pages, "graph": graph, "graph_stats": gstats,
         "anchors": anchors, "clusters": clusters, "relatedness": relate,
