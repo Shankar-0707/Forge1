@@ -3,89 +3,250 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Link Intel Suite - live cockpit</title>
+<title>Link Intel Suite - Live Cockpit</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
 <style>
-:root{--ink:#1a1a1f;--card:#242428;--line:#3a3a42;--paper:#f8f7f4;--mute:#c8c5be;--red:#FF0000;--blue:#6ea8fe;--green:#22c55e;--amber:#e2b53e}
-*{box-sizing:border-box}
-body{margin:0;background:var(--ink);color:var(--paper);font-family:Inter,system-ui,sans-serif;line-height:1.5}
-.bar{height:3px;background:var(--red);position:fixed;top:0;left:0;right:0;z-index:10}
-.wrap{max-width:1080px;margin:0 auto;padding:34px 22px}
-h1{font-size:24px;margin:0 0 2px}
-.sub{color:var(--mute);font-size:14px;margin-bottom:6px}
-.mono{font-family:'JetBrains Mono',monospace}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);margin-right:8px;box-shadow:0 0 12px rgba(255,0,0,.6);animation:p 2.2s ease-in-out infinite}
-@keyframes p{0%,100%{opacity:1}50%{opacity:.5}}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
-.kpi b{display:block;font-size:30px;line-height:1.1}
-.kpi span{font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.07em}
-.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:760px){.cols{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
-.card h3{margin:0 0 12px;font-size:15px}
-.row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
-.row:last-child{border:none}
-.row .v{font-family:'JetBrains Mono',monospace;color:var(--blue)}
-.tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
-.tag.hub{background:var(--green);color:#04210f}.tag.scattered{background:var(--line);color:var(--mute)}
-.cl{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
-.cl:last-child{border:none}
-.feed{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--mute);max-height:200px;overflow:auto}
-.feed div{padding:3px 0;border-bottom:1px dashed #2c2c32}
-.st{font-size:12px;color:var(--mute)}
-.rec{font-size:12.5px;padding:8px 0;border-bottom:1px solid var(--line)}
-.rec:last-child{border:none}.rec .a{color:var(--paper);font-weight:600}
-.empty{color:var(--mute);font-size:13px}
+:root {
+  --bg-dark: #0b0f19;
+  --bg-purple: #1c102a;
+  --card-bg: rgba(36, 36, 40, 0.4);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --ink: #1a1a1f;
+  --line: #3a3a42;
+  --paper: #f8f7f4;
+  --mute: #c8c5be;
+  --red: #ff4b4b;
+  --dark-red: #d32f2f;
+  --blue: #6ea8fe;
+  --green: #22c55e;
+  --amber: #e2b53e;
+  --glow: rgba(110, 168, 254, 0.2);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: linear-gradient(135deg, var(--bg-dark), var(--bg-purple));
+  background-attachment: fixed;
+  color: var(--paper);
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* Pipeline Progress Bar */
+.pipeline {
+  display: flex;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  padding: 10px 20px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid var(--card-border);
+  gap: 8px;
+  overflow-x: auto;
+  align-items: center;
+}
+.stage {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #555;
+  transition: all 0.3s ease;
+}
+.stage.active { color: var(--blue); text-shadow: 0 0 8px var(--glow); }
+.stage.done { color: var(--green); }
+.stage.error { color: var(--red); }
+.stage-arrow { margin: 0 8px; color: #444; }
+.stage.done + .stage-arrow { color: var(--green); }
+
+.wrap { max-width: 1140px; margin: 0 auto; padding: 40px 22px; }
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 30px;
+}
+h1 { font-size: 28px; margin: 0 0 4px; font-weight: 700; background: linear-gradient(90deg, #fff, #aab); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.sub { color: var(--mute); font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* Status Dot */
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 12px var(--blue); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.1); } }
+.dot.done { background: var(--green); box-shadow: 0 0 12px var(--green); animation: none; }
+
+/* Glass Cards */
+.card, .kpi {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+}
+.card:hover, .kpi:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 15px var(--glow);
+}
+
+/* KPIs */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.kpi { padding: 20px; position: relative; overflow: hidden; }
+.kpi b { display: block; font-size: 36px; line-height: 1.1; font-weight: 700; margin-bottom: 4px; }
+.kpi span { font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+.trend { position: absolute; top: 16px; right: 16px; font-size: 14px; opacity: 0.8; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+@media(max-width: 800px) { .cols { grid-template-columns: 1fr; } }
+
+.card { padding: 24px; margin-bottom: 20px; }
+.card h3 { margin: 0 0 16px; font-size: 16px; font-weight: 600; letter-spacing: 0.03em; border-bottom: 1px solid var(--card-border); padding-bottom: 12px; }
+
+/* Lists & Rows */
+.row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 14px; }
+.row:last-child { border: none; }
+.row .v { font-family: 'JetBrains Mono', monospace; color: var(--blue); font-weight: 600; }
+
+/* Badges */
+.tag { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; display: inline-block; }
+.tag.hub { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+.tag.scattered { background: rgba(255, 255, 255, 0.1); color: var(--mute); }
+.badge { background: rgba(110, 168, 254, 0.2); color: #93c5fd; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+
+/* Tables */
+.table-wrapper { overflow-x: auto; margin-top: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+th { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); font-weight: 600; white-space: nowrap; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+td.truncate { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Bar Chart inside Cluster Table */
+.bar-chart { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; width: 100px; margin-top: 6px; }
+.bar-fill { height: 100%; background: var(--blue); border-radius: 3px; }
+
+/* Feed */
+.feed { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--mute); max-height: 250px; overflow: auto; padding-right: 10px; }
+.feed-item { padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.1); display: flex; align-items: flex-start; gap: 10px; }
+.feed-time { color: #666; font-size: 11px; min-width: 70px; }
+.f-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+.f-dot.info { background: var(--blue); }
+.f-dot.success { background: var(--green); }
+.f-dot.err { background: var(--red); }
+
+.empty { color: var(--mute); font-size: 14px; font-style: italic; padding: 10px 0; }
+.st { font-size: 13px; color: var(--mute); }
+
+footer { margin-top: 40px; text-align: center; color: #555; font-size: 12px; padding-bottom: 40px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 </style>
 </head>
 <body>
-<div class="bar"></div>
+
+<div class="pipeline" id="pipeline">
+  <div class="stage" id="st-load">Load</div><div class="stage-arrow">→</div>
+  <div class="stage" id="st-graph">Graph</div><div class="stage-arrow">→</div>
+  <div class="stage" id="st-anchors">Anchors</div><div class="stage-arrow">→</div>
+  <div class="stage" id="st-topics">Topics</div><div class="stage-arrow">→</div>
+  <div class="stage" id="st-entities">Entities</div><div class="stage-arrow">→</div>
+  <div class="stage" id="st-recommendations">Recommendations</div><div class="stage-arrow">→</div>
+  <div class="stage" id="st-saved">Done</div>
+</div>
+
 <div class="wrap">
-  <h1><span class="dot"></span>Link Intel Suite</h1>
-  <div class="sub"><span id="site" class="mono">waiting for a run...</span> · <span id="status" class="st">idle</span></div>
+  <header>
+    <div>
+      <h1>Link Intel Suite</h1>
+      <div class="sub">
+        <span class="dot" id="main-dot"></span>
+        <span id="site" class="mono" style="color: #fff">waiting for a run...</span> 
+        <span style="opacity:0.5">|</span>
+        <span id="status" class="st">idle</span>
+        <span style="opacity:0.5">|</span>
+        <span id="uptime" class="mono" style="font-size: 12px">00:00</span>
+      </div>
+    </div>
+  </header>
 
   <div class="grid">
-    <div class="kpi"><b id="k-links">-</b><span>internal links</span></div>
-    <div class="kpi"><b id="k-orphans" style="color:var(--amber)">-</b><span>orphan pages</span></div>
-    <div class="kpi"><b id="k-broken" style="color:var(--red)">-</b><span>broken internal</span></div>
-    <div class="kpi"><b id="k-generic">-</b><span>generic anchors</span></div>
-    <div class="kpi"><b id="k-clusters">-</b><span>clusters</span></div>
-    <div class="kpi"><b id="k-recs" style="color:var(--blue)">-</b><span>link suggestions</span></div>
+    <div class="kpi"><div class="trend">🔗</div><b id="k-links" data-val="0">0</b><span>Internal Links</span></div>
+    <div class="kpi"><div class="trend" style="color:var(--amber)">⚠️</div><b id="k-orphans" data-val="0" style="color:var(--amber)">0</b><span>Orphan Pages</span></div>
+    <div class="kpi"><div class="trend" style="color:var(--red)">🚨</div><b id="k-broken" data-val="0" style="color:var(--red)">0</b><span>Broken Internal</span></div>
+    <div class="kpi"><div class="trend">⚓</div><b id="k-generic" data-val="0">0</b><span>Generic Anchors</span></div>
+    <div class="kpi"><div class="trend">📚</div><b id="k-clusters" data-val="0">0</b><span>Clusters</span></div>
+    <div class="kpi"><div class="trend" style="color:var(--green)">✨</div><b id="k-recs" data-val="0" style="color:var(--green)">0</b><span>Link Suggestions</span></div>
   </div>
 
   <div class="cols">
-    <div class="card"><h3>Internal link graph</h3>
-      <div class="row"><span>Pages crawled</span><span class="v" id="g-pages">-</span></div>
-      <div class="row"><span>Indexable pages</span><span class="v" id="g-idx">-</span></div>
-      <div class="row"><span>Max crawl depth</span><span class="v" id="g-depth">-</span></div>
-      <div class="row"><span>Avg inlinks/page</span><span class="v" id="g-avg">-</span></div>
-      <div class="row"><span>Deepest pages</span><span class="v" id="g-deep">-</span></div>
-      <div class="row"><span>Under-linked</span><span class="v" id="g-under">-</span></div>
-      <div class="row"><span>Over-linked</span><span class="v" id="g-over">-</span></div>
-      <div class="row"><span>Redirect internal links</span><span class="v" id="g-redir">-</span></div>
-      <div class="row"><span>Nofollow internal links</span><span class="v" id="g-nofol">-</span></div>
+    <div class="card">
+      <h3>Internal Link Graph</h3>
+      <div class="row"><span>Pages crawled</span><span class="v" id="g-pages">0</span></div>
+      <div class="row"><span>Indexable pages</span><span class="v" id="g-idx">0</span></div>
+      <div class="row"><span>Max crawl depth</span><span class="v" id="g-depth">0</span></div>
+      <div class="row"><span>Avg inlinks/page</span><span class="v" id="g-avg">0</span></div>
+      <div class="row"><span>Deepest pages</span><span class="v" id="g-deep">0</span></div>
+      <div class="row"><span>Under-linked</span><span class="v" id="g-under">0</span></div>
+      <div class="row"><span>Over-linked</span><span class="v" id="g-over">0</span></div>
+      <div class="row"><span>Redirect internal links</span><span class="v" id="g-redir">0</span></div>
+      <div class="row"><span>Nofollow internal links</span><span class="v" id="g-nofol">0</span></div>
     </div>
-    <div class="card"><h3>Anchor text</h3>
-      <div class="row"><span>Total internal anchors</span><span class="v" id="a-total">-</span></div>
-      <div class="row"><span>Generic / non-descriptive</span><span class="v" id="a-generic">-</span></div>
-      <div class="row"><span>Empty / image-only</span><span class="v" id="a-empty">-</span></div>
-      <div class="row"><span>Over-optimized exact-match</span><span class="v" id="a-over">-</span></div>
-      <h3 style="margin-top:16px">Entities</h3>
-      <div class="row"><span>Pages with entities</span><span class="v" id="e-pages">-</span></div>
+    
+    <div class="card">
+      <h3>Anchor Text & Entities</h3>
+      <div class="row"><span>Total internal anchors</span><span class="v" id="a-total">0</span></div>
+      <div class="row"><span>Generic / non-descriptive</span><span class="v" id="a-generic">0</span></div>
+      <div class="row"><span>Empty / image-only</span><span class="v" id="a-empty">0</span></div>
+      <div class="row"><span>Over-optimized exact-match</span><span class="v" id="a-over">0</span></div>
+      <h3 style="margin-top:24px; border-top: 1px solid var(--card-border); padding-top: 16px;">Model Enrichment</h3>
+      <div class="row"><span>Pages with extracted entities</span><span class="v" id="e-pages">0</span></div>
+      <div class="row"><span>LLM API Calls</span><span class="v" id="e-calls">0</span></div>
     </div>
   </div>
 
-  <div class="card"><h3>Topical clusters &amp; authority</h3>
-    <div id="clusters"><div class="empty">No clusters yet.</div></div>
+  <div class="card">
+    <h3>Topical Clusters & Authority</h3>
+    <div id="clusters"><div class="empty">No clusters generated yet.</div></div>
   </div>
 
-  <div class="card"><h3>Contextual link recommendations</h3>
-    <div id="recs"><div class="empty">No recommendations yet.</div></div>
+  <div class="card">
+    <h3>Contextual Link Recommendations</h3>
+    <div id="recs"><div class="empty">Waiting for linker agent...</div></div>
   </div>
 
-  <div class="card"><h3>Live event feed</h3><div class="feed" id="feed"></div></div>
+  <div class="cols">
+    <div class="card">
+      <h3>Broken Links (4xx/5xx)</h3>
+      <div id="broken-links"><div class="empty">No broken links found.</div></div>
+    </div>
+    <div class="card">
+      <h3>Anchor Issues</h3>
+      <div id="anchor-issues"><div class="empty">No anchor issues detected.</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Live Event Feed</h3>
+    <div class="feed" id="feed"></div>
+  </div>
+
+  <footer>
+    Link Intel Suite Live Cockpit &copy; 2026
+  </footer>
 </div>
+
 <script src="/app.js"></script>
 </body>
 </html>

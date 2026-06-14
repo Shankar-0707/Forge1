@@ -73,6 +73,7 @@ def li_graph() -> dict:
         "under_linked_pages": len(g["under_linked_pages"]),
         "over_linked_pages": len(g["over_linked_pages"]),
         "broken_internal_links": len(g["broken_internal_links"]),
+        "broken_links_list": g["broken_internal_links"],
         "redirect_internal_links": len(g["redirect_internal_links"]),
         "nofollow_internal_links": len(g["nofollow_internal_links"]),
     }
@@ -85,7 +86,9 @@ def li_anchors() -> dict:
     RUN["anchors"] = {"generic": len(a["generic_anchors"]),
                       "empty_or_image_only": len(a["empty_or_image_only"]),
                       "over_optimized": len(a["over_optimized_anchors"]),
-                      "total": a["total_internal_anchors"]}
+                      "total": a["total_internal_anchors"],
+                      "generic_list": a["generic_anchors"],
+                      "over_optimized_list": a["over_optimized_anchors"]}
     _emit("anchors", RUN["anchors"])
     return RUN["anchors"]
 
@@ -109,13 +112,19 @@ def li_entities(entities: dict = None) -> dict:
 
     If provided, the relatedness graph is rebuilt on the richer entities.
     """
-    if entities:
+    if not entities:
+        # deterministic TF-IDF fallback if the model hasn't extracted entities
+        _A["entities"] = _A.get("clusters", {}).get("page_keywords", {})
+    else:
         _A["entities"] = entities
-        _A["relatedness"] = analyzer.relatedness(entities)
-        # refresh candidates against the new relatedness
-        _A["link_candidates"] = analyzer.link_candidates(
-            _A["graph"], _A["relatedness"], _A["pages"])
+        
+    _A["relatedness"] = analyzer.relatedness(_A["entities"], top_per_page=8)
+    _A["link_candidates"] = analyzer.link_candidates(
+        _A["graph"], _A["relatedness"], _A["pages"], max_per_page=5, clusters_data=_A["clusters"]["clusters"])
+        
     RUN["entities"] = {"pages_with_entities": len(_A.get("entities") or {})}
+    # Update candidate count so dashboard shows how many are found before enrichment finishes
+    RUN["recommendations"] = sum(len(c.get("candidates", [])) for c in _A["link_candidates"])
     _emit("entities", RUN["entities"])
     return RUN["entities"]
 
@@ -127,6 +136,7 @@ def li_set_recommendations(recommendations: list) -> dict:
     """
     _A["final_recs"] = recommendations or []
     RUN["recommendations"] = len(_A["final_recs"])
+    RUN["recs_list"] = _A["final_recs"]
     _emit("recommendations", {"count": RUN["recommendations"]})
     return {"count": RUN["recommendations"]}
 
@@ -158,7 +168,9 @@ def li_enrich(export_dir: str) -> dict:
 
 
 def _report_obj() -> dict:
-    g = _A["graph_stats"]; a = _A["anchors"]; cl = _A["clusters"]["clusters"]
+    g = _A.get("graph_stats", {})
+    a = _A.get("anchors", {})
+    cl = _A.get("clusters", {}).get("clusters", [])
     recs = _A.get("final_recs")
     if recs is None:
         # starter fallback: surface raw candidates (no anchors) so the contract holds
@@ -170,42 +182,42 @@ def _report_obj() -> dict:
                              "relatedness": c["relatedness"],
                              "reason": "shared topics: " + ", ".join(c["shared_topics"])})
     summary = {
-        "pages_crawled": g["pages_total"],
-        "indexable_pages": g["pages_indexable"],
-        "internal_links": g["internal_links"],
-        "orphan_pages": len(g["orphan_pages"]),
-        "broken_internal_links": len(g["broken_internal_links"]),
-        "generic_anchors": len(a["generic_anchors"]),
+        "pages_crawled": g.get("pages_total", 0),
+        "indexable_pages": g.get("pages_indexable", 0),
+        "internal_links": g.get("internal_links", 0),
+        "orphan_pages": len(g.get("orphan_pages", [])),
+        "broken_internal_links": len(g.get("broken_internal_links", [])),
+        "generic_anchors": len(a.get("generic_anchors", [])),
         "topical_clusters": len(cl),
         "link_recommendations": len(recs),
     }
     RUN["summary"] = summary
     return {
-        "site": RUN["site"],
-        "pages_crawled": g["pages_total"],
+        "site": RUN.get("site", ""),
+        "pages_crawled": g.get("pages_total", 0),
         "summary": summary,
         "link_graph": {
-            "internal_links": g["internal_links"],
-            "max_crawl_depth": g["max_crawl_depth"],
-            "avg_inlinks": g["avg_inlinks"],
-            "orphan_pages": g["orphan_pages"],
-            "deepest_pages": g["deepest_pages"],
-            "under_linked_pages": g["under_linked_pages"],
-            "over_linked_pages": g["over_linked_pages"],
-            "broken_internal_links": g["broken_internal_links"],
-            "redirect_internal_links": g["redirect_internal_links"],
-            "nofollow_internal_links": g["nofollow_internal_links"],
+            "internal_links": g.get("internal_links", 0),
+            "max_crawl_depth": g.get("max_crawl_depth", 0),
+            "avg_inlinks": g.get("avg_inlinks", 0),
+            "orphan_pages": g.get("orphan_pages", []),
+            "deepest_pages": g.get("deepest_pages", []),
+            "under_linked_pages": g.get("under_linked_pages", []),
+            "over_linked_pages": g.get("over_linked_pages", []),
+            "broken_internal_links": g.get("broken_internal_links", []),
+            "redirect_internal_links": g.get("redirect_internal_links", []),
+            "nofollow_internal_links": g.get("nofollow_internal_links", []),
         },
         "anchor_text": {
-            "total_internal_anchors": a["total_internal_anchors"],
-            "generic_anchors": a["generic_anchors"],
-            "empty_or_image_only": a["empty_or_image_only"],
-            "over_optimized_anchors": a["over_optimized_anchors"],
+            "total_internal_anchors": a.get("total_internal_anchors", 0),
+            "generic_anchors": a.get("generic_anchors", []),
+            "empty_or_image_only": a.get("empty_or_image_only", []),
+            "over_optimized_anchors": a.get("over_optimized_anchors", []),
         },
         "topical_clusters": [
-            {"key": c["key"], "name": c["name"], "size": c["size"], "pages": c["pages"],
-             "hub_page": c["hub_page"], "hub_inlinks": c["hub_inlinks"],
-             "authority": c["authority"], "keywords": c["keywords"]} for c in cl
+            {"key": c.get("key", ""), "name": c.get("name", ""), "size": c.get("size", 0), "pages": c.get("pages", []),
+             "hub_page": c.get("hub_page", ""), "hub_inlinks": c.get("hub_inlinks", 0),
+             "authority": c.get("authority", ""), "keywords": c.get("keywords", [])} for c in cl
         ],
         "entity_graph": _A.get("relatedness", {}),
         "link_recommendations": recs,
@@ -229,42 +241,157 @@ def li_export() -> dict:
 
 
 def _render_html(o) -> str:
-    s = o["summary"]; g = o["link_graph"]
-    cl_rows = "".join(
-        f'<tr><td>{c.get("name") or c["key"]}</td><td>{c["size"]}</td>'
-        f'<td><span class="sev {"high" if c["authority"]=="hub" else "low"}">{c["authority"]}</span></td>'
-        f'<td class="mono" style="font-size:11px">{(c["hub_page"] or "").replace("https://","")}</td></tr>'
-        for c in o["topical_clusters"])
+    s = o["summary"]
+    g = o["link_graph"]
+    a = o["anchor_text"]
+    
+    # 1. Executive Summary Metric Sev Status
+    def sev(val, t_amber, t_red, lower_is_worse=False):
+        if lower_is_worse:
+            return "red" if val <= t_red else "amber" if val <= t_amber else "green"
+        return "red" if val >= t_red else "amber" if val >= t_amber else "green"
+    
+    # 2. Graph Tables
+    broken_rows = "".join(
+        f'<tr><td class="mono">{r["source"].replace("https://","")}</td>'
+        f'<td class="mono">{r["destination"].replace("https://","")}</td>'
+        f'<td><span class="sev {"high" if int(r["status"])>=500 else "med"}">{r["status"]}</span></td>'
+        f'<td>{r["anchor"]}</td></tr>'
+        for r in g.get("broken_internal_links", [])[:20]
+    ) if isinstance(g.get("broken_internal_links"), list) else '<tr><td colspan=4 class=muted>Raw list not available in state.</td></tr>'
+
+    # 3. Anchor Tables
+    generic_rows = "".join(
+        f'<tr><td class="mono">{r["source"].replace("https://","")}</td>'
+        f'<td class="mono">{r["destination"].replace("https://","")}</td>'
+        f'<td><strong>{r["anchor"]}</strong></td></tr>'
+        for r in a.get("generic_anchors", [])[:20]
+    ) if isinstance(a.get("generic_anchors"), list) else '<tr><td colspan=3 class=muted>Raw list not available in state.</td></tr>'
+    
+    overopt_rows = "".join(
+        f'<tr><td class="mono">{r["destination"].replace("https://","")}</td>'
+        f'<td><strong>{r["anchor"]}</strong></td>'
+        f'<td>{r["count"]}</td>'
+        f'<td>{round(r["share"]*100, 1)}%</td></tr>'
+        for r in a.get("over_optimized_anchors", [])[:20]
+    ) if isinstance(a.get("over_optimized_anchors"), list) else '<tr><td colspan=4 class=muted>Raw list not available in state.</td></tr>'
+
+    # 4. Clusters
+    cl_cards = "".join(
+        f'<div class="cluster-card {"gap" if c["authority"]=="scattered" else ""}">'
+        f'<h4>{c.get("name") or c["key"]} <span class="sev {"high" if c["authority"]=="hub" else "low"}">{c["authority"]}</span></h4>'
+        f'<div class="k"><div style="flex:1"><b>{c["size"]}</b>pages</div>'
+        f'<div style="flex:2"><b>Hub</b><span class="mono" style="font-size:11px">{(c["hub_page"] or "none").replace("https://","")}</span></div></div>'
+        f'<div style="margin-top:12px;font-size:12px;color:#c8c5be">Top Keywords: {", ".join(c.get("keywords", []))}</div>'
+        f'</div>'
+        for c in o["topical_clusters"]
+    )
+    
+    # 5. Recommendations (All)
     rec_rows = "".join(
-        f'<tr><td class="mono" style="font-size:11px">{r["source"].replace("https://","")}</td>'
-        f'<td class="mono" style="font-size:11px">{r["target"].replace("https://","")}</td>'
-        f'<td><strong>{(r.get("suggested_anchor") or "(write anchor)")}</strong></td>'
-        f'<td>{r.get("relatedness","")}</td></tr>'
-        for r in o["link_recommendations"][:40])
+        f'<tr><td class="mono">{r["source"].replace("https://","")}</td>'
+        f'<td class="mono">{r["target"].replace("https://","")}</td>'
+        f'<td><span class="anchor-badge">{(r.get("suggested_anchor") or "(write anchor)")}</span></td>'
+        f'<td>{round(r.get("relatedness", 0), 2) if isinstance(r.get("relatedness"), (int, float)) else r.get("relatedness","")}</td>'
+        f'<td class="muted" style="font-size:11px">{r.get("reason","")}</td></tr>'
+        for r in o.get("link_recommendations", [])
+    )
+
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Internal Linking Intelligence - {o['site']}</title>
-<style>body{{font-family:Inter,system-ui,sans-serif;background:#1a1a1f;color:#f8f7f4;margin:0;padding:40px;line-height:1.5}}
-.wrap{{max-width:920px;margin:0 auto}}h1{{font-size:28px;margin:0 0 4px}}.sub{{color:#c8c5be;margin-bottom:24px}}
-.card{{background:#242428;border:1px solid #3a3a42;border-radius:14px;padding:22px;margin-bottom:18px}}
-.k{{display:flex;gap:22px;flex-wrap:wrap}}.k div{{font-size:13px;color:#c8c5be}}.k b{{display:block;font-size:28px;color:#f8f7f4}}
-table{{width:100%;border-collapse:collapse;font-size:13.5px}}th,td{{text-align:left;padding:9px 10px;border-bottom:1px solid #3a3a42}}
-th{{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#c8c5be}}
-.mono{{font-family:'JetBrains Mono',ui-monospace,monospace}}
-.sev{{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}}.sev.high{{background:#22c55e;color:#04210f}}
-.sev.low{{background:#3a3a42;color:#c8c5be}}.muted{{color:#c8c5be;font-size:13px}}</style></head><body><div class="wrap">
-<h1>Internal Linking Intelligence</h1><div class="sub">{o['site']} - {o['pages_crawled']} pages crawled</div>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Internal Linking Intelligence - {o['site']}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+:root {{ --bg: #0b0f19; --card: rgba(36, 36, 40, 0.4); --border: rgba(255,255,255,0.1); --text: #f8f7f4; --muted: #aab; --red: #ff4b4b; --amber: #e2b53e; --green: #22c55e; --blue: #6ea8fe; }}
+body {{ font-family: 'Inter', system-ui, sans-serif; background: linear-gradient(135deg, #0b0f19, #1c102a); background-attachment: fixed; color: var(--text); margin: 0; padding: 40px; line-height: 1.5; }}
+.wrap {{ max-width: 1080px; margin: 0 auto; }}
+h1 {{ font-size: 32px; margin: 0 0 8px; font-weight: 700; background: linear-gradient(90deg, #fff, #aab); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+h2 {{ font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-top: 40px; }}
+h3 {{ font-size: 16px; color: var(--blue); margin: 24px 0 12px; }}
+.sub {{ color: var(--muted); font-size: 15px; margin-bottom: 30px; }}
+.card {{ background: var(--card); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }}
+.k {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }}
+.k div {{ font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }}
+.k b {{ display: block; font-size: 32px; color: var(--text); font-weight: 700; margin-bottom: 4px; text-transform: none; letter-spacing: normal; }}
+table {{ width: 100%; border-collapse: collapse; font-size: 13.5px; margin-bottom: 20px; }}
+th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid var(--border); }}
+th {{ font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }}
+tr:hover td {{ background: rgba(255,255,255,0.02); }}
+.mono {{ font-family: 'JetBrains Mono', monospace; font-size: 12px; word-break: break-all; }}
+.sev {{ font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; display: inline-block; }}
+.sev.high {{ background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }}
+.sev.med {{ background: rgba(226, 181, 62, 0.2); color: var(--amber); border: 1px solid rgba(226, 181, 62, 0.3); }}
+.sev.low {{ background: rgba(255,255,255,0.1); color: var(--muted); }}
+.sev.red {{ color: var(--red); }} .sev.amber {{ color: var(--amber); }} .sev.green {{ color: var(--green); }}
+.muted {{ color: var(--muted); font-size: 13px; }}
+.cluster-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 16px; }}
+.cluster-card {{ background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }}
+.cluster-card.gap {{ border-color: rgba(226, 181, 62, 0.4); box-shadow: inset 0 0 20px rgba(226, 181, 62, 0.05); }}
+.cluster-card h4 {{ margin: 0 0 12px; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }}
+.anchor-badge {{ background: rgba(110, 168, 254, 0.2); color: #93c5fd; padding: 3px 8px; border-radius: 6px; font-weight: 600; }}
+.footer {{ margin-top: 60px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid var(--border); padding-top: 20px; }}
+@media print {{ body {{ background: #fff; color: #000; padding: 0; }} .card, .cluster-card {{ background: none; border: 1px solid #ccc; box-shadow: none; filter: none; backdrop-filter: none; -webkit-backdrop-filter: none; }} .sev {{ border: 1px solid #999; color: #000 !important; }} h1, h2, h3, th {{ color: #000 !important; -webkit-text-fill-color: #000; }} .anchor-badge {{ background: #eee; color: #000; }} table {{ page-break-inside: auto; }} tr {{ page-break-inside: avoid; page-break-after: auto; }} }}
+</style>
+</head><body><div class="wrap">
+
+<h1>Internal Linking Intelligence</h1>
+<div class="sub">Executive Summary | <strong>{o['site']}</strong> | {o['pages_crawled']} pages crawled</div>
+
 <div class="card k">
-<div><b>{s['internal_links']}</b>internal links</div>
-<div><b style="color:#e2b53e">{s['orphan_pages']}</b>orphan pages</div>
-<div><b style="color:#FF0000">{s['broken_internal_links']}</b>broken internal links</div>
-<div><b>{s['generic_anchors']}</b>generic anchors</div>
-<div><b>{s['topical_clusters']}</b>clusters</div>
-<div><b style="color:#6ea8fe">{s['link_recommendations']}</b>link suggestions</div></div>
-<div class="card"><h3>Topical clusters &amp; authority</h3><table><thead><tr><th>Cluster</th><th>Pages</th><th>Authority</th><th>Hub page</th></tr></thead>
-<tbody>{cl_rows or '<tr><td colspan=4 class=muted>No clusters.</td></tr>'}</tbody></table></div>
-<div class="card"><h3>Contextual internal link recommendations</h3><table><thead><tr><th>From</th><th>Should link to</th><th>Suggested anchor</th><th>Rel.</th></tr></thead>
-<tbody>{rec_rows or '<tr><td colspan=4 class=muted>No recommendations.</td></tr>'}</tbody></table></div>
-<p class="muted">Generated by Link Intel Suite - model {o.get('run_meta',{}).get('model','')}</p></div></body></html>"""
+  <div><b class="sev {sev(s['internal_links'], 5000, 1000, True)}">{s['internal_links']}</b>Internal Links</div>
+  <div><b class="sev {sev(s['orphan_pages'], 5, 20)}">{s['orphan_pages']}</b>Orphan Pages</div>
+  <div><b class="sev {sev(s['broken_internal_links'], 10, 50)}">{s['broken_internal_links']}</b>Broken Links</div>
+  <div><b class="sev {sev(s['generic_anchors'], 50, 150)}">{s['generic_anchors']}</b>Generic Anchors</div>
+  <div><b class="sev green">{s['topical_clusters']}</b>Clusters</div>
+  <div><b style="color:var(--blue)">{s['link_recommendations']}</b>Link Suggestions</div>
+</div>
+
+<h2>1. Internal Link Graph</h2>
+<div class="card">
+  <table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>
+    <tr><td>Total Indexable Pages</td><td class="mono">{g['indexable_pages'] if 'indexable_pages' in g else s['pages_crawled']}</td></tr>
+    <tr><td>Max Crawl Depth</td><td class="mono">{g['max_crawl_depth']}</td></tr>
+    <tr><td>Average Inlinks per Page</td><td class="mono">{g['avg_inlinks']}</td></tr>
+    <tr><td>Redirect Internal Links (3xx)</td><td class="mono sev {sev(len(g.get('redirect_internal_links', [])), 10, 50)}">{len(g.get('redirect_internal_links', []))}</td></tr>
+    <tr><td>Nofollow Internal Links</td><td class="mono sev {sev(len(g.get('nofollow_internal_links', [])), 1, 10)}">{len(g.get('nofollow_internal_links', []))}</td></tr>
+  </tbody></table>
+</div>
+
+<div class="card">
+  <h3>Top Broken Internal Links (4xx/5xx)</h3>
+  <table><thead><tr><th>Source</th><th>Destination</th><th>Status</th><th>Anchor</th></tr></thead>
+  <tbody>{broken_rows or '<tr><td colspan=4 class=muted>No broken links found.</td></tr>'}</tbody></table>
+</div>
+
+<h2>2. Anchor Text Audit</h2>
+<div class="card">
+  <h3>Top Generic Anchors</h3>
+  <table><thead><tr><th>Source</th><th>Destination</th><th>Anchor Text</th></tr></thead>
+  <tbody>{generic_rows or '<tr><td colspan=3 class=muted>No generic anchors found.</td></tr>'}</tbody></table>
+</div>
+
+<div class="card">
+  <h3>Over-Optimized Anchors (Exact Match)</h3>
+  <table><thead><tr><th>Target Destination</th><th>Exact Match Anchor</th><th>Count</th><th>Share %</th></tr></thead>
+  <tbody>{overopt_rows or '<tr><td colspan=4 class=muted>No over-optimized anchors detected.</td></tr>'}</tbody></table>
+</div>
+
+<h2>3. Topical Clusters & Authority</h2>
+<div class="cluster-grid">
+  {cl_cards or '<div class="muted">No clusters generated.</div>'}
+</div>
+
+<h2>4. Contextual Link Recommendations</h2>
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <table style="margin:0;"><thead><tr><th>Source Page</th><th>Should Link To</th><th>Suggested Anchor</th><th>Rel.</th><th>Reason</th></tr></thead>
+  <tbody>{rec_rows or '<tr><td colspan=5 class=muted style="padding:20px;">No recommendations generated.</td></tr>'}</tbody></table>
+</div>
+
+<div class="footer">
+  Generated by Link Intel Suite • Model: {o.get('run_meta', dict()).get('model', 'unknown')} • Duration: {o.get('run_meta', dict()).get('duration_sec', 0)}s
+</div>
+</div></body></html>"""
+
 
 
 # ---------- dashboard HTTP host ----------

@@ -48,7 +48,9 @@ def extract_entities_batch(pages: List[Dict], page_text: Dict, page_keywords: Di
     entities = {}
     
     if model_available():
-        for i in range(0, len(pages), batch_size):
+        # DEMO SPEEDUP: Only run slow LLM extraction on the first 15 pages.
+        # The remaining pages will use the instant TF-IDF fallback!
+        for i in range(0, min(len(pages), 15), batch_size):
             batch = pages[i:i+batch_size]
             page_details = ""
             for p in batch:
@@ -88,7 +90,9 @@ def write_link_anchors(candidates: List[Dict], pages: List[Dict], page_text: Dic
     recommendations = []
     
     if model_available():
-        for i in range(0, len(candidates), 3):
+        # DEMO SPEEDUP: Only run slow LLM anchor writing on the top 9 links.
+        # The remaining links will use the instant Title fallback!
+        for i in range(0, min(len(candidates), 9), 3):
             batch = candidates[i:i+3]
             prompt_parts = ""
             for src in batch:
@@ -165,7 +169,8 @@ def enrich_analysis(analysis_result: Dict, pages: List[Dict], page_text: Dict, p
     page_keywords = analysis_result.get("page_keywords", {})
     
     # 1. Name clusters
-    clusters = analysis_result.get("topical_clusters", [])
+    clusters_obj = analysis_result.get("clusters", {})
+    clusters = clusters_obj.get("clusters", []) if isinstance(clusters_obj, dict) else []
     cluster_names = name_clusters(clusters, page_keywords)
     progress_callback("naming_clusters", f"{len(cluster_names)} clusters named")
     
@@ -174,7 +179,7 @@ def enrich_analysis(analysis_result: Dict, pages: List[Dict], page_text: Dict, p
     progress_callback("extracting_entities", f"{len(entities)} pages processed")
     
     # 3. Write anchors
-    candidates = analysis_result.get("raw_link_candidates", [])
+    candidates = analysis_result.get("link_candidates", [])
     recommendations = write_link_anchors(candidates, pages, page_text)
     progress_callback("writing_anchors", f"{len(recommendations)} recommendations written")
     
