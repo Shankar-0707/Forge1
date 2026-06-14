@@ -20,6 +20,7 @@ import argparse, os, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "mcp"))
 sys.path.insert(0, HERE)
+# pyrefly: ignore [missing-import]
 import server  # the MCP server module exposes every tool as a function
 
 
@@ -40,9 +41,31 @@ def main():
     server.li_anchors()
     server.li_topics()        # no model names in headless mode (cluster keys used)
     server.li_entities()      # uses TF-keyword relatedness proxy
-    # Starter does NOT attach model-written recs; _report_obj() then falls back to the
-    # deterministic candidates (no anchors) so the contract always has data to grade.
-    server.RUN["model_calls"] = 0
+    
+    # --- ENRICHMENT PIPELINE ---
+    from linkintel.analyzer import load_page_text, load_pages
+    from linkintel.enrichment import enrich_analysis
+    from linkintel.model_client import model_available, model_call_count, model_name
+    
+    page_text = load_page_text(args.export_dir)
+    pages = load_pages(args.export_dir)
+    
+    available = model_available()
+    print(f"\n[li] Model {model_name()} available: {available}", flush=True)
+    
+    def on_progress(stage, detail):
+        print(f"  [enrichment] {stage}: {detail}", flush=True)
+        
+    enrich_results = enrich_analysis(server._A, pages, page_text, progress_callback=on_progress)
+    
+    if enrich_results.get("cluster_names"):
+        server.li_topics(names=enrich_results["cluster_names"])
+    if enrich_results.get("entities"):
+        server.li_entities(entities=enrich_results["entities"])
+    if enrich_results.get("recommendations"):
+        server.li_set_recommendations(enrich_results["recommendations"])
+
+    server.RUN["model_calls"] = model_call_count()
     server.RUN["duration_sec"] = round(time.time() - t0, 1)
     server.li_report()
     server.li_export()

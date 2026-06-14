@@ -1,6 +1,7 @@
 import json
 from typing import List, Dict, Any
 from linkintel.model_client import model_available, model_generate, get_client
+from linkintel.analyzer import _norm
 
 def name_clusters(clusters: List[Dict], page_keywords: Dict) -> Dict[str, str]:
     """Return {cluster_key: "Human Readable Name"} for each cluster."""
@@ -51,9 +52,10 @@ def extract_entities_batch(pages: List[Dict], page_text: Dict, page_keywords: Di
             batch = pages[i:i+batch_size]
             page_details = ""
             for p in batch:
-                url = p["url"]
+                url = _norm(p.get("Address", ""))
+                if not url: continue
                 text = page_text.get(url, "")[:500]
-                page_details += f"URL: {url}\nTitle: {p.get('title', '')}\nText: {text}\n\n"
+                page_details += f"URL: {url}\nTitle: {p.get('Title 1', '')}\nText: {text}\n\n"
                 
             prompt = (
                 "For each page below, extract 5-8 key entities (services, technologies, concepts).\n"
@@ -72,7 +74,8 @@ def extract_entities_batch(pages: List[Dict], page_text: Dict, page_keywords: Di
                 
     # Fallback for missing
     for p in pages:
-        url = p["url"]
+        url = _norm(p.get("Address", ""))
+        if not url: continue
         if url not in entities:
             # deterministic fallback
             kws = page_keywords.get(url, {})
@@ -90,11 +93,11 @@ def write_link_anchors(candidates: List[Dict], pages: List[Dict], page_text: Dic
             prompt_parts = ""
             for src in batch:
                 src_url = src["source"]
-                src_title = next((p["title"] for p in pages if p["url"] == src_url), src_url)
+                src_title = next((p.get("Title 1", "") for p in pages if _norm(p.get("Address", "")) == src_url), src_url)
                 
                 for tgt in src.get("candidates", []):
                     tgt_url = tgt["target"]
-                    tgt_title = next((p["title"] for p in pages if p["url"] == tgt_url), tgt_url)
+                    tgt_title = next((p.get("Title 1", "") for p in pages if _norm(p.get("Address", "")) == tgt_url), tgt_url)
                     prompt_parts += f"Source URL: {src_url}\nSource Title: {src_title}\n"
                     prompt_parts += f"Target URL: {tgt_url}\nTarget Title: {tgt_title}\n"
                     prompt_parts += f"Shared Topics: {tgt.get('shared_topics', [])}\n\n"
@@ -140,7 +143,7 @@ def write_link_anchors(candidates: List[Dict], pages: List[Dict], page_text: Dic
                 reason = "shared topics: " + ", ".join(tgt.get("shared_topics", [])[:2])
                 anchor = tgt.get("suggested_anchor")
                 if not anchor:
-                    tgt_title = next((p["title"] for p in pages if p["url"] == tgt_url), tgt_url)
+                    tgt_title = next((p.get("Title 1", "") for p in pages if _norm(p.get("Address", "")) == tgt_url), tgt_url)
                     anchor = tgt_title
                     
                 recommendations.append({

@@ -22,7 +22,7 @@ ROOT = os.path.dirname(HERE)
 DASH_DIR = os.path.join(ROOT, "dashboard")
 OUT_DIR = os.path.join(ROOT, "outputs")
 PORT = int(os.environ.get("LI_PORT", os.environ.get("SEO_PORT", "7700")))
-MODEL = os.environ.get("RADAR_MODEL", os.environ.get("LI_MODEL", "gpt-oss:20b-cloud"))
+MODEL = os.environ.get("LI_MODEL", os.environ.get("RADAR_MODEL", "gpt-oss:20b-cloud"))
 
 import sys
 sys.path.insert(0, ROOT)
@@ -129,6 +129,32 @@ def li_set_recommendations(recommendations: list) -> dict:
     RUN["recommendations"] = len(_A["final_recs"])
     _emit("recommendations", {"count": RUN["recommendations"]})
     return {"count": RUN["recommendations"]}
+
+
+def li_enrich(export_dir: str) -> dict:
+    """Run the full model-powered enrichment pipeline (naming, entities, anchors)."""
+    from linkintel.analyzer import load_page_text, load_pages
+    from linkintel.enrichment import enrich_analysis
+    
+    page_text = load_page_text(export_dir)
+    pages = load_pages(export_dir)
+    
+    def on_progress(stage, detail):
+        _emit("enrichment", {"stage": stage, "detail": detail})
+        
+    res = enrich_analysis(_A, pages, page_text, progress_callback=on_progress)
+    
+    if res.get("cluster_names"):
+        li_topics(names=res["cluster_names"])
+    if res.get("entities"):
+        li_entities(entities=res["entities"])
+    if res.get("recommendations"):
+        li_set_recommendations(res["recommendations"])
+        
+    calls = res.get("model_calls", 0)
+    RUN["model_calls"] = RUN.get("model_calls", 0) + calls
+    _emit("enrich_done", {"model_calls": calls})
+    return {"model_calls": calls, "enriched": True}
 
 
 def _report_obj() -> dict:
@@ -318,6 +344,11 @@ def _run_mcp():
     def recommend(recommendations: list) -> dict:
         """Attach the final contextual link recommendations [{source,target,suggested_anchor,relatedness,reason}]."""
         return li_set_recommendations(recommendations)
+
+    @mcp.tool()
+    def enrich(export_dir: str) -> dict:
+        """Run the full model-powered enrichment pipeline."""
+        return li_enrich(export_dir)
 
     @mcp.tool()
     def write_report() -> dict:
