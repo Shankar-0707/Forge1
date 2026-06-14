@@ -27,6 +27,7 @@ MODEL = os.environ.get("LI_MODEL", os.environ.get("RADAR_MODEL", "gpt-oss:20b-cl
 import sys
 sys.path.insert(0, ROOT)
 from linkintel import analyzer  # noqa: E402
+from linkintel.exporters import export_pdf, export_pptx
 
 RUN = {"site": None, "urls": 0, "status": "idle",
        "graph_stats": None, "anchors": None, "clusters": None,
@@ -235,9 +236,24 @@ def li_report() -> dict:
 
 def li_export() -> dict:
     os.makedirs(OUT_DIR, exist_ok=True)
-    p = os.path.join(OUT_DIR, "report.html")
-    open(p, "w", encoding="utf-8").write(_render_html(_report_obj()))
-    _emit("exported", {"path": p}); return {"path": p}
+    p_html = os.path.join(OUT_DIR, "report.html")
+    p_pdf = os.path.join(OUT_DIR, "report.pdf")
+    p_pptx = os.path.join(OUT_DIR, "report.pptx")
+    
+    o = _report_obj()
+    open(p_html, "w", encoding="utf-8").write(_render_html(o))
+    
+    try:
+        export_pdf(o, p_pdf)
+    except Exception as e:
+        print(f"[li] PDF export failed: {e}", flush=True)
+        
+    try:
+        export_pptx(o, p_pptx)
+    except Exception as e:
+        print(f"[li] PPTX export failed: {e}", flush=True)
+        
+    _emit("exported", {"path": p_html}); return {"path": p_html}
 
 
 def _render_html(o) -> str:
