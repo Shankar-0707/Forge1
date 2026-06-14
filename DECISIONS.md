@@ -12,16 +12,10 @@ Format:
 
 ---
 
-## Example (replace with your own)
-- `[10:20]` Used `Unique Inlinks` for orphan detection, not `Inlinks` -> `Inlinks` counts
-  duplicate links (nav appearing twice), so it never hits 0; `Unique Inlinks` is the real
-  orphan signal.
-- `[11:05]` Path-segment clustering merged unrelated root pages -> kept it as the starter but
-  added TF keywords so the topic-agent can split/name them properly.
-- `[12:40]` Dashboard not updating live -> server tool wasn't emitting the SSE event; added
-  `_emit(...)` in each li_* tool.
-
----
-
 ## My log
-- `[--:--]` ...
+- `[09:15]` Decision: TF-IDF clustering over URL path segments -> Why: Path segments generated 33 clusters, many of which were unrelated. TF-IDF clustering with cosine similarity is much more accurate and works on any site structure.
+- `[09:45]` Decision: Deterministic fallback for all model steps -> Why: Ensures the pipeline can always finish and outputs/report.json is always valid, even if the LLM API times out or fails to return valid JSON.
+- `[10:10]` Decision: Batch model calls instead of one-per-page -> Why: Significantly saves on API quota and is drastically faster. Batched 5 entities per call, 8 clusters per call.
+- `[10:30]` Decision: Weighted Jaccard over plain Jaccard -> Why: Plain Jaccard treats common words equally. Weighting with IDF scores ensures that rare shared terms form much stronger relatedness bonds than generic shared terms.
+- `[10:50]` Decision: Prioritize orphan/under-linked pages in recommendations -> Why: The linker agent targets pages that actually need link equity rather than randomly connecting highly-linked hub pages. This fixes real SEO gaps.
+- `[11:15]` Fixed Bug: Crash on list severity check -> Why: `g['redirect_internal_links']` returned a list. Updated `mcp/server.py` to use `len()` when rendering the list size for severity threshold checks.

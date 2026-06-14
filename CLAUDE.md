@@ -35,8 +35,12 @@ recommendations**. It serves a live dashboard at localhost:7700 and outputs
 - Commit after each working step with a real message.
 - Run `python run.py sample-export/` to test end to end.
 
-## Things I have learned during the build (update this as you go)
-- (e.g. "page text filenames are URL-encoded with an `original_https_` prefix - decode before
-  matching to Address")
-- (e.g. "orphans = `Unique Inlinks` == 0, NOT `Inlinks` == 0 - Inlinks counts repeated links")
-- ...
+## Things I have learned during the build
+- Page text filenames use original_https_ prefix with underscores as path separators
+- Use Unique Inlinks (not Inlinks) for orphan/under-linked detection
+- TF-IDF clustering produces ~15-20 clusters vs 33 from URL path segments
+- Over-optimized anchor detection: share >= 0.6 AND count >= 10
+- Weighted Jaccard with IDF scores gives better relatedness than plain Jaccard
+- Model calls should be batched (5-8 items per call) to save quota
+- Always filter to Type == Hyperlink for link-level checks
+- Always filter to text/html + 200 + Indexable for page-level checks

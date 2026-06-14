@@ -16,16 +16,16 @@ Format per entry:
 
 ---
 
-## Example (replace with your own)
-
-- **Prompt:** "Extend linkintel/analyzer.py over_optimized_anchors: flag a destination where
-  one non-generic anchor is >= 60% of all internal anchors pointing at it AND count >= 10.
-  Run python linkintel/analyzer.py and show the counts."
-- **For:** completing the over-optimized exact-match anchor rule
-- **Revised?** Yes - first version flagged tiny destinations; added the count >= 10 floor.
-
----
-
 ## My prompts
-1. ...
-2. ...
+
+- **Prompt:** "For each page below, extract 5-8 key entities (services, technologies, concepts). Return JSON: {\"url1\": [\"entity1\", ...], ...}\n\nPages:\n" + page_details
+- **For:** Extracting entities per page.
+- **Revised?** Yes. Added strict JSON formatting and limited to 5-8 entities to keep outputs focused and prevent hallucinated fields. Batched 5 pages per prompt to save quota.
+
+- **Prompt:** "Given these topic clusters with their keywords, give each a short descriptive name (2-5 words). Return JSON: {\"key1\": \"Name 1\", ...}\n\nClusters:\n" + cluster_details
+- **For:** Giving human-readable names to TF-IDF clusters.
+- **Revised?** Yes. Added the 2-5 words constraint to ensure names fit neatly in the dashboard UI and report.
+
+- **Prompt:** "For each link target, suggest a 2-5 word anchor text and give a 1 sentence reason why. Return JSON: [{\"source\": url, \"target\": url, \"suggested_anchor\": \"...\", \"reason\": \"...\"}, ...]\n\nCandidates:\n" + prompt_parts
+- **For:** Writing contextual link recommendations and anchors.
+- **Revised?** Yes. Reduced batch size to 3 candidate pairs per prompt because the model struggled to follow instructions and format output correctly for larger batches.
